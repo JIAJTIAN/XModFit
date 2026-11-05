@@ -186,7 +186,7 @@ class FunctionEditor(QWidget):
             fh.close()
             self.process=QProcess()
             self.process.readyReadStandardOutput.connect(self.readRunOutput)
-            self.process.start('python -E '+fname)
+            self.process.start(sys.executable, ['-E', fname])
             self.process.finished.connect(self.finishRunning)
         else:
             QMessageBox.warning(self,'Error','Please check for syntax error in the function',QMessageBox.Ok)

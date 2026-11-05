@@ -50,7 +50,6 @@ from emcee import backends
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
 
 
-
 class minMaxDialog(QDialog):
     def __init__(self, value, vary=0, minimum=None, maximum=None, expr=None, brute_step=None, parent=None, title=None):
         QDialog.__init__(self, parent)
@@ -2359,7 +2358,7 @@ class XModFit(QWidget):
                 data_dlg=Data_Dialog(fname=fname,parent=self)
                 data_dlg.setModal(True)
                 data_dlg.closePushButton.setText('Cancel')
-                if len(fnames)>1:
+                if len(fnames)>1 or getattr(data_dlg, 'xanosComponentAutoImport', False):
                     data_dlg.accept()
                 else:
                     #data_dlg.show()
@@ -3292,6 +3291,7 @@ class XModFit(QWidget):
         self.plotWidget=PlotWidget()
         self.plotWidget.setXLabel('x',fontsize=5)
         self.plotWidget.setYLabel('y',fontsize=5)
+        self.plotWidget.setDefaultLogMode(x=True, y=True)
         self.plotSplitter.addWidget(self.plotWidget)
 
         self.extra_param_1DplotWidget=PlotWidget()

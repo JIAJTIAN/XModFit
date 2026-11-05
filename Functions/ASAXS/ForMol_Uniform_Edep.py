@@ -11,10 +11,14 @@ from functools import lru_cache
 
 ####Import your modules below if needed####
 import copy
+from io import StringIO
 from xraydb import XrayDB
 from itertools import combinations
 import os
 import mendeleev
+# Older Biopython versions (Bio.PDB.SASA) still use the np.int alias which was removed from NumPy 1.24 onwards
+if not hasattr(np, 'int'):
+    np.int = int
 from Bio.PDB import PDBParser
 from Bio.PDB.SASA import ShrakeRupley
 
@@ -117,8 +121,17 @@ class ForMol_Uniform_Edep: #Please put the class name same as the function name
         """
         Reads the PDB file to read the atomic positions, solvent accessible surface areas of each of the atoms
         """
-        parser = PDBParser()
-        struct = parser.get_structure('pdb', fname)
+        # Files written by Open Babel etc. repeat atom names and residue numbers (all carbons are named 'C', residues 1,2,1,2..).
+        # Biopython silently drops such 'duplicate' atoms, so every atom gets a unique name and residue number first.
+        lines = []
+        with open(fname, 'r') as fh:
+            for i, line in enumerate(fh):
+                if line.startswith(('ATOM', 'HETATM')):
+                    line = line.rstrip('\r\n').ljust(80)
+                    line = line[:6] + '%5d' % (i + 1) + ' ' + '%4d' % (i + 1) + line[16:22] + '%4d' % (i + 1) + line[26:]
+                lines.append(line)
+        parser = PDBParser(QUIET=True)
+        struct = parser.get_structure('pdb', StringIO('\n'.join(lines)))
         elements = []
         pos = []
         sasa = []
@@ -126,7 +139,7 @@ class ForMol_Uniform_Edep: #Please put the class name same as the function name
         sr.compute(struct, level='A')
         # cen=np.zeros(3)
         for atom in struct.get_atoms():
-            elements.append(atom.element)
+            elements.append(atom.element.strip().capitalize())  # Biopython returns upper case symbols (PR)
             pos.append(atom.get_coord())
             sasa.append(atom.sasa)
         return len(elements), elements, pos, sasa

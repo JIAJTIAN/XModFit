@@ -33,6 +33,16 @@ class PlotWidget(QWidget):
         self.data_num=0
         self.yerr={}
         self.fit={}
+
+    def setDefaultLogMode(self, x=True, y=True):
+        self.xLogCheckBox.blockSignals(True)
+        self.yLogCheckBox.blockSignals(True)
+        self.xLogCheckBox.setCheckState(Qt.Checked if x else Qt.Unchecked)
+        self.yLogCheckBox.setCheckState(Qt.Checked if y else Qt.Unchecked)
+        self.xLogCheckBox.blockSignals(False)
+        self.yLogCheckBox.blockSignals(False)
+        if getattr(self, "selDataNames", None):
+            self.updatePlot()
         
        
     def createPlotWidget(self):

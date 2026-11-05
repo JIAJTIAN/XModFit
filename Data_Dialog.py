@@ -69,6 +69,7 @@ class Data_Dialog(QDialog):
         self.oldColors={}
         self.dataAltered=False
         self.expressions=expressions
+        self.xanosComponentAutoImport=False
         if data is not None:
             self.data=data
             self.autoUpdateCheckBox.setEnabled(False)
@@ -86,7 +87,9 @@ class Data_Dialog(QDialog):
             self.setMeta2Table()
             self.setData2Table()
             if plotIndex is None:
-                self.addPlots(color=None)
+                self.xanosComponentAutoImport=self.addXanosComponentPlots()
+                if not self.xanosComponentAutoImport:
+                    self.addPlots(color=None)
             else:
                 self.addMultiPlots(plotIndex=plotIndex,colors=colors)
         self.init_signals()
@@ -662,6 +665,32 @@ class Data_Dialog(QDialog):
         for i in range(1,len(columns),2):
             plotIndex[columns[i]]=[0,i,i+2]
         self.addMultiPlots(plotIndex=plotIndex)
+
+    def addXanosComponentPlots(self):
+        """
+        XAnoS ASAXS component files contain all extracted terms, Total, and
+        original data columns. For fitting we only want the physical component
+        terms with their matching propagated error columns.
+        """
+        if self.data is None or 'data' not in self.data:
+            return False
+        columns = self.data['data'].columns.tolist()
+        q_candidates = ['Q(inv Angs)', 'Q', 'q', 'q(A^-1)', 'q (A^-1)']
+        q_col = next((name for name in q_candidates if name in columns), None)
+        terms = ['SAXS-term', 'Cross-term', 'Resonant-term']
+        if q_col is None or not all(term in columns for term in terms):
+            return False
+
+        q_index = columns.index(q_col)
+        plotIndex = {}
+        for term in terms:
+            term_index = columns.index(term)
+            err_name = term + '_err'
+            err_index = columns.index(err_name) + 1 if err_name in columns else 0
+            plotIndex[term] = [q_index, term_index, err_index]
+        self.addMultiPlots(plotIndex=plotIndex)
+        self.plotWidget.setDefaultLogMode(x=True, y=True)
+        return True
             
             
     def addPlots(self,plotIndex=None,color=None):
