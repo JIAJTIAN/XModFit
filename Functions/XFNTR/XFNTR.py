@@ -14,11 +14,11 @@ sys.path.append(os.path.abspath('./Fortran_rountines'))
 ####Please do not remove lines above####
 
 ####Import your modules below if needed####
-import time
+
 
 
 class XFNTR: #Please put the class name same as the function name
-    def __init__(self,x=0.1,E=20.0, mpar={}, topchem='C12H26', topden=0.75, botchem='Sr50Cl100H110493.721O55246.86', botden=1.0032, element='Sr', line='Ka1', vslit= 0.02, detlen=12.7, qoff=0.0, yscale=1,int_bg=0, Rc=0, sur_cov=0,ion_depth=0):
+    def __init__(self,x=0.1,E=10.0, mpar={}, topchem='He', topden=1.78e-4, botchem='Sr50Cl100H110493.721O55246.86', botden=1.0032, element='Sr', line='Ka1', vslit= 0.04, detlen=10.5, qoff=0.0, yscale=1,int_bg=0, Rc=0, sur_den=0,ion_depth=0):
         """
         Calculates X-ray reflectivity from a system of multiple layers using Parratt formalism
 
@@ -36,8 +36,8 @@ class XFNTR: #Please put the class name same as the function name
         yscale  : a scale factor for the fluorescence intensity in unit of 1E-3 /AA
         int_bg  : the background fluorescence intensity from the secondary scattering from the primary beam, should be zero for air/water interface
         Rc : the radius of the interfacial curvature in unit of meter; 0 means it's flat
-        sur_cov : the surface coverage of target element in unit of per \AA^-2
-        ion_depth : the location of ion underneath the interface in unit of \AA
+        sur_den : the surface density of target element in unit of number per \AA^-2
+        ion_depth : the monolayer thickness in unit of \AA where doesn't have any ions
         """
         if type(x)==list:
             self.x=np.array(x)
@@ -57,15 +57,11 @@ class XFNTR: #Please put the class name same as the function name
         self.yscale = yscale
         self.int_bg = int_bg
         self.Rc = Rc
-        self.sur_cov = sur_cov
+        self.sur_den = sur_den
         self.ion_depth = ion_depth
-        try:
-            elelist = [xdb.symbol(i) for i in range(1,100)]
-        except: #For campatiblity with older versions
-            elelist = xdb.atomic_symbols
+        elelist = xdb.atomic_symbols
         linelist = list(xdb.xray_lines(98).keys())
         self.choices={'element':elelist,'line': linelist} #If there are choices available for any fixed parameters
-        self.filepaths = {}  # If a parameter is a filename with path
         self.output_params = {}
         self.init_params()
         self.__fit__=False
@@ -82,7 +78,7 @@ class XFNTR: #Please put the class name same as the function name
         self.params.add('yscale', self.yscale, vary=0, min=0, max=np.inf, expr=None, brute_step=0.1)
         self.params.add('int_bg', self.int_bg, vary=0, min=0, max=np.inf, expr=None, brute_step=0.1)
         self.params.add('Rc', self.Rc, vary=0, min=-np.inf, max=np.inf, expr=None, brute_step=0.1)
-        self.params.add('sur_cov', self.sur_cov, vary=0, min=0, max=np.inf, expr=None, brute_step=0.1)
+        self.params.add('sur_den', self.sur_den, vary=0, min=0, max=np.inf, expr=None, brute_step=0.1)
         self.params.add('ion_depth', self.ion_depth, vary=0, min=0, max=np.inf, expr=None, brute_step=0.1)
 
     def parseFormula(self, chemfor):
@@ -154,11 +150,18 @@ class XFNTR: #Please put the class name same as the function name
                 z1 = (fprint[i] - detlen) / 2 * alpha[i]
                 z2 = (fprint[i] + detlen) / 2 * alpha[i]
                 effd, trans = self.frsnllCal(topdel, topbet, botdel, botbet, flumu, k0, alpha[i])
-                effv = effd * topd * np.exp(-detlen / 2 / topd) * (detlen * effd * np.exp(z2 / alpha[i] / topd) * (
+                if (fprint[i] > detlen):
+                    effv = effd * topd * np.exp(-detlen / 2 / topd) * (detlen * effd * np.exp(z2 / alpha[i] / topd) * (
                             np.exp(-z1 / effd) - np.exp(-z2 / effd)) + topd * (np.exp(detlen / topd) - 1) * (
                                                                                z1 - z2)) / (
                                    detlen * effd + topd * (z1 - z2))
-                int_sur = self.sur_cov * topd * (np.exp(detlen / 2 / topd) - np.exp(-detlen / 2 / topd))  # surface intensity
+                else:
+                    tempf1 = np.exp(- alpha[i] * (fprint[i] + detlen)/ 2 /effd + fprint[i]/ 2 / topd)
+                    tempf2 = np.exp(- alpha[i] * (detlen - fprint[i]) / 2 / effd - fprint[i] / 2 / topd)
+                    effv = 2 * topd * effd * np.sinh(fprint[i]/ 2 / topd) + topd * effd * effd * (tempf1 - tempf2) / (topd * alpha[i] - effd)
+                int_sur = self.sur_den * topd * (np.exp(min(detlen, fprint[i]) / 2 / topd) - np.exp(-min(detlen, fprint[i]) / 2 / topd))  # surface intensity
+                #print(x[i],topd*1e-10, detlen*1e-10, np.exp(detlen / 2 / topd) - np.exp(-detlen / 2 / topd))
+                #print(topd*1e-10, fprint[i]*1e-10, np.exp(fprint[i] / 2 / topd) - np.exp(-fprint[i] / 2 / topd))
                 int_bulk =  effv * self.__avoganum__ * conbulk / 1e27  # bluk intensity
                 int_tot = np.exp(-self.ion_depth/effd) * self.yscale * 1e-3 * trans * (int_sur + int_bulk) + self.int_bg
                 flu.append(int_tot)
@@ -168,9 +171,9 @@ class XFNTR: #Please put the class name same as the function name
             for i in range(len(alpha)):
                 bsum = 0
                 ssum = 0
-                steps = int((detlen + fprint[i]) / 2 / 1e6)  # use 0.1 mm as the step size
-                stepsize = (detlen + fprint[i]) / 2 / steps
-                x = np.linspace(-fprint[i] / 2 + stepsize / 2, detlen / 2 - stepsize / 2,steps)  # get the position fo single ray hitting the surface relative to the center of detector area with the step size "steps"
+                steps = int((min(detlen, fprint[i]) + fprint[i]) / 2 / 1e6)  # use 0.1 mm as the step size
+                stepsize = (min(detlen, fprint[i]) + fprint[i]) / 2 / steps
+                x = np.linspace(-fprint[i] / 2 + stepsize / 2, min(detlen, fprint[i]) / 2 - stepsize / 2,steps)  # get the position fo single ray hitting the surface relative to the center of detector area with the step size "steps"
                 for j in range(len(x)):
                     alphanew = alpha[i] - x[j] / self.Rc/1e10  # the incident angle at position x[j]
                     y1 = -detlen / 2 - x[j]
@@ -183,7 +186,7 @@ class XFNTR: #Please put the class name same as the function name
                         bsum = bsum + np.exp(-self.ion_depth/effd) * np.exp(-x[j] / topd) * trans * effd * (np.exp(-y1 * alpha[i] / effd) - np.exp(
                             -y2 * alpha[i] / effd))  # surface has no contribution at this region
                 int_bulk = bsum * stepsize * self.__avoganum__ * conbulk / 1e27
-                int_sur = ssum * stepsize * self.sur_cov
+                int_sur = ssum * stepsize * self.sur_den
                 int_tot =  self.yscale * 1e-3 * (int_bulk + int_sur) + self.int_bg
                 flu.append(int_tot)
         return flu
@@ -214,6 +217,6 @@ class XFNTR: #Please put the class name same as the function name
 
 
 if __name__=='__main__':
-    x = np.linspace(0.006, 0.03, 400)
+    x = np.linspace(0.015, 0.03, 400)
     fun=XFNTR(x=x)
     print(fun.y())

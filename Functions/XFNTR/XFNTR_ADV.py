@@ -14,13 +14,13 @@ sys.path.append(os.path.abspath('./Fortran_rountines'))
 ####Please do not remove lines above####
 
 ####Import your modules below if needed####
-from mendeleev import get_all_elements
+
 
 
 class XFNTR_ADV: #Please put the class name same as the function name
     def __init__(self,x=0.1,E=20.0, mpar={'Top':{'Components':['Sr'],'Concentration':[0],'Radius':[1.25]}, 'Bottom':{'Components':['SrCl2'],'Concentration':[50.0],'Radius':[2.388]}},
                  topchem='C12H26', topden=0.75, botchem='H2O', botden=0.997, element='Sr', line='Ka1', beam_profile='Uniform',
-                 x_axis = 'Qz', beamwid = 0.02, detlen=12.7, gl2=1238.0, qz=0.01, samplesize=76, stepsize=100, qoff=0.0, shoff=0.0, gl2off=0.0, detoff=0.0, yscale=1, int_bg=0, Rc=300, sur_den=0, topextra=0.0, botextra=0.0):
+                 x_axis = 'Qz', beamwid = 0.02, detlen=12.7, gl2=1238.0, qz=0.01, cen2win=50, samplesize=76, stepsize=100, qoff=0.0, shoff=0.0, gl2off=0.0, detoff=0.0, yscale=1, int_bg=0, Rc=300, sur_den=0, topextra=0.0, botextra=0.0):
         """
         Calculates X-ray reflectivity from a system of multiple layers using Parratt formalism
 
@@ -39,6 +39,7 @@ class XFNTR_ADV: #Please put the class name same as the function name
         gl2     : the distance btw the steering crystal and the sample in the unit of mm; needed if x axis is sh
         qz      : qz in unit of \AA^-1; needed if x axis is sh
         sampleszie : the interface size in unit of mm
+        cen2win: the distance btw the sample center and side window in unit of mm
         stepsize : the step size along the footprint used for the numerical integration in the unit of um
         qoff  	: q-offset to correct the zero q of the instrument
         shoff   : sample height offset due to the alignment in the unit of mm
@@ -72,6 +73,7 @@ class XFNTR_ADV: #Please put the class name same as the function name
         self.gl2 = gl2
         self.qz = qz
         self.samplesize = samplesize
+        self.cen2win = cen2win
         self.stepsize = stepsize
         self.qoff = qoff
         self.shoff = shoff
@@ -84,13 +86,9 @@ class XFNTR_ADV: #Please put the class name same as the function name
         self.topextra = topextra
         self.botextra = botextra
         #self.ion_depth = ion_depth
-        try:
-            elelist = [xdb.symbol(i) for i in range(1,100)]
-        except: #For campatiblity with older versions
-            elelist = xdb.atomic_symbols
+        elelist = xdb.atomic_symbols
         linelist = list(xdb.xray_lines(98).keys())
         self.choices={'element':elelist,'line': linelist, 'beam_profile':['Uniform', 'Gaussian'], 'x_axis':['Qz', 'sh']} #If there are choices available for any fixed parameters
-        self.filepaths = {}  # If a parameter is a filename with path
         self.output_params = {}
         self.init_params()
         self.__fit__=False
@@ -224,7 +222,9 @@ class XFNTR_ADV: #Please put the class name same as the function name
         top_con = []
         bot_con = []
         sur_con = []
-        top_ana = []
+        topabs = np.exp(-self.cen2win * 1e+7 * topmu) # account for the absorption of x-ray from the sample cell window to interface center for normalization
+        #print('topabs', topabs, 'topmu', topmu)
+        #top_ana = []
         for i in range(len(x)):
             steps = int(fprint[i]/(self.stepsize * 1e4))
             stepsize = fprint[i]/steps
@@ -265,9 +265,9 @@ class XFNTR_ADV: #Please put the class name same as the function name
             int_bot = np.where(z_i1 > zprime, 0, 1.0 / mu_t * trans * np.exp(-topmu * xprime) * np.exp(-alphaprime * zprime / alpha[i] / pend) * (np.exp(mu_t * z_imed) - np.exp(mu_t * z_i1)))
             int_sur = np.where((xprime < self.detlen * 1e7 / 2 + self.detoff * 1e7) & (xprime > -self.detlen * 1e7 / 2 + self.detoff * 1e7), trans * np.exp(-topmu * xprime), 0)
 
-            tot_top = self.yscale * stepsize * (contop+self.topextra*1e-3) * np.sum(np.where(xprime > -self.samplesize * 1e7 / 2, int_top * weighthit, 0)) * self.__avoganum__ / 1e27
-            tot_bot = self.yscale * stepsize * (conbot+self.botextra*1e-3) * np.sum(np.where(xprime > -self.samplesize * 1e7 / 2, int_bot * weighthit, 0)) * self.__avoganum__ / 1e27
-            tot_sur = self.yscale * stepsize * np.sum(int_sur * weighthit) * self.sur_den
+            tot_top = topabs * self.yscale * stepsize * (contop+self.topextra*1e-3) * np.sum(np.where(xprime > -self.samplesize * 1e7 / 2, int_top * weighthit, 0)) * self.__avoganum__ / 1e27
+            tot_bot = topabs * self.yscale * stepsize * (conbot+self.botextra*1e-3) * np.sum(np.where(xprime > -self.samplesize * 1e7 / 2, int_bot * weighthit, 0)) * self.__avoganum__ / 1e27
+            tot_sur = topabs * self.yscale * stepsize * np.sum(int_sur * weighthit) * self.sur_den
 
 
             if len(x0miss)!=0:    # for the ray missing the interface, (all of them from the downsteam side)
@@ -275,7 +275,7 @@ class XFNTR_ADV: #Please put the class name same as the function name
                 z_i1miss = (x0miss - self.detlen * 1e7 / 2 - self.detoff * 1e7) * alpha[i]  # the position of the incident beam missing the interface hits the downstream edge of the detecting area
                 z_i2miss = (x0miss + self.detlen * 1e7 / 2 - self.detoff * 1e7) * alpha[i]  # the position of the incident beam missing the interface hits the upstream edge of the detecting area
                 int_topmiss = 1.0 / mu_i * (np.exp(mu_i * z_i2miss - topmu * x0miss) - np.exp(mu_i * z_i1miss - topmu * x0miss))
-                tot_top = tot_top + self.yscale * stepsize * (contop+self.topextra*1e-3) * np.sum(int_topmiss * weightmiss) * self.__avoganum__ / 1e27
+                tot_top = tot_top + topabs * self.yscale * stepsize * (contop+self.topextra*1e-3) * np.sum(int_topmiss * weightmiss) * self.__avoganum__ / 1e27
 
             int_tot = (tot_top + tot_bot + tot_sur) + self.int_bg
             top_con.append(tot_top)
@@ -328,7 +328,8 @@ class XFNTR_ADV: #Please put the class name same as the function name
         conbot = self.getBulkCon(self.element, newbotchem, newbotden)  # get the bottom bulk concentration of the target element
         contop = self.getBulkCon(self.element, newtopchem, newtopden)  # get the top bulk concentration of the target element
 
-        #print(conbot, contop)
+       # print(conbot, contop)
+       # print(newtopchem, newtopden)
 
         fluene = xdb.xray_lines(self.element)[self.line].energy / 1000  # get the fluorescence energy in KeV
 
